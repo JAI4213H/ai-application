@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ink / MNIST</title>
+  <style>
+    :root { --ink: #e9edf5; --muted: #929bad; --line: rgba(255,255,255,.13); --accent: #c5f36b; --bg: #0b0d11; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: var(--ink); background: radial-gradient(circle at 85% 5%, #263019 0, transparent 28rem), var(--bg); font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+    .shell { width: min(1100px, calc(100% - 40px)); margin: auto; padding: 32px 0 44px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 76px; }
+    .brand { letter-spacing: .18em; font-size: 13px; text-transform: uppercase; font-weight: 700; }
+    .status { color: var(--muted); font-size: 12px; display: flex; gap: 8px; align-items: center; }
+    .accuracy { color: var(--accent); margin-left: 8px; }
+    .status i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+    .intro { max-width: 650px; margin-bottom: 38px; }
+    h1 { margin: 0 0 12px; font: 500 clamp(42px, 7vw, 82px)/.95 Georgia, serif; letter-spacing: -.06em; }
+    .intro p { max-width: 460px; color: var(--muted); margin: 0; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 18px; }
+    .glass { border: 1px solid var(--line); background: linear-gradient(145deg, rgba(255,255,255,.1), rgba(255,255,255,.035)); box-shadow: 0 24px 80px rgba(0,0,0,.24); backdrop-filter: blur(18px); border-radius: 24px; }
+    .draw-card { padding: 18px; }
+    .card-top { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin: 2px 3px 14px; }
+    canvas { display: block; width: 100%; aspect-ratio: 1; border-radius: 16px; background: #080a0e; cursor: crosshair; touch-action: none; }
+    .actions { display: flex; gap: 10px; margin-top: 14px; }
+    button { border: 0; padding: 12px 18px; border-radius: 999px; color: #11140c; background: var(--accent); cursor: pointer; font: inherit; font-weight: 700; transition: transform .2s, filter .2s; }
+    button:hover { transform: translateY(-2px); filter: brightness(1.08); }
+    button.secondary { color: var(--ink); background: rgba(255,255,255,.08); border: 1px solid var(--line); }
+    .result { padding: 26px; display: flex; flex-direction: column; min-height: 100%; }
+    .eyebrow { color: var(--muted); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; }
+    .model-score { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); }
+    .model-score-label { color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .model-score-value { color: var(--accent); font-size: 22px; font-weight: 700; }
+    .digit { font: 500 150px/.9 Georgia, serif; letter-spacing: -.1em; margin: 30px 0 24px; color: var(--accent); }
+    .confidence { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin-bottom: 9px; }
+    .track { height: 5px; border-radius: 5px; background: rgba(255,255,255,.1); overflow: hidden; }
+    .fill { width: 0%; height: 100%; border-radius: inherit; background: var(--accent); transition: width .45s ease; }
+    .hint { color: var(--muted); font-size: 13px; margin-top: auto; padding-top: 38px; }
+    @media (max-width: 760px) { header { margin-bottom: 50px; } .grid { grid-template-columns: 1fr; } .result { min-height: 280px; } .digit { margin: 14px 0; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header><div class="brand">Ink / MNIST</div><div class="status"><i></i> CNN online <span class="accuracy">· Test accuracy: {{ accuracy ~ '%' if accuracy is not none else 'Train model first' }}</span></div></header>
+    <section class="intro"><h1>What number<br>do you see?</h1><p>Draw a single digit. A compact convolutional neural network will translate your ink into a prediction.</p></section>
+    <section class="grid">
+      <div class="glass draw-card">
+        <div class="card-top"><span>Canvas</span><span>28 × 28 input</span></div>
+        <canvas id="canvas" width="560" height="560" aria-label="Draw a digit here"></canvas>
+        <div class="actions"><button id="recognize">Recognize</button><button class="secondary" id="clear">Clear</button></div>
+      </div>
+      <aside class="glass result">
+        <div class="eyebrow">Prediction</div><div class="digit" id="digit">—</div>
+        <div class="confidence"><span>Confidence</span><span id="confidence">Draw something</span></div>
+        <div class="track"><div class="fill" id="fill"></div></div>
+        <div class="model-score">
+          <div class="model-score-label">Model test accuracy</div>
+          <div class="model-score-value">{{ accuracy ~ '%' if accuracy is not none else 'Train model first' }}</div>
+        </div>
+        <p class="hint" id="hint">The model is waiting for your handwriting.</p>
+      </aside>
+    </section>
+  </main>
+  <script>
+    const canvas = document.querySelector('#canvas'), ctx = canvas.getContext('2d');
+    const digit = document.querySelector('#digit'), confidence = document.querySelector('#confidence');
+    const fill = document.querySelector('#fill'), hint = document.querySelector('#hint');
+    ctx.fillStyle = '#080a0e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#f3f5f8'; ctx.lineWidth = 30; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    let drawing = false, hasInk = false;
+    function point(event) { const r = canvas.getBoundingClientRect(); return [(event.clientX-r.left)*canvas.width/r.width, (event.clientY-r.top)*canvas.height/r.height]; }
+    canvas.addEventListener('pointerdown', e => { drawing = true; hasInk = true; canvas.setPointerCapture(e.pointerId); const [x,y] = point(e); ctx.beginPath(); ctx.moveTo(x,y); });
+    canvas.addEventListener('pointermove', e => { if (!drawing) return; const [x,y] = point(e); ctx.lineTo(x,y); ctx.stroke(); });
+    canvas.addEventListener('pointerup', () => drawing = false);
+    document.querySelector('#clear').onclick = () => { ctx.fillStyle = '#080a0e'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.strokeStyle = '#f3f5f8'; hasInk=false; digit.textContent='—'; confidence.textContent='Draw something'; fill.style.width='0%'; hint.textContent='The model is waiting for your handwriting.'; };
+    document.querySelector('#recognize').onclick = async () => {
+      if (!hasInk) return;
+      hint.textContent = 'Reading the shape…';
+      const response = await fetch('/predict', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ image: canvas.toDataURL('image/png') }) });
+      const data = await response.json();
+      if (!response.ok) { hint.textContent = data.error || 'Could not recognize that image.'; return; }
+      digit.textContent = data.digit; confidence.textContent = `${data.confidence}%`; fill.style.width = `${data.confidence}%`; hint.textContent = 'Prediction complete. Try another style or number.';
+    };
+  </script>
+</body>
+</html>

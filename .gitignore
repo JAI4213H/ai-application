@@ -1,0 +1,15 @@
+__pycache__/
+.venv/
+*.pyc
+output/
+tmp/
+trash/
+.ppt-build/
+*.pptx
+*.pdf
+*.ndjson
+build_deck.mjs
+finalize_deck.mjs
+make_explanation_pdf.py
+project_explanation_brief.txt
+archive/*/*
